@@ -167,6 +167,57 @@ import pandas as _pd; _s = _pd.Timestamp("2025-07-04"); print(f"Inference week: 
 cat = catalog.set_index("feature_name"); print(cat[["base", "lag", "base_display"]])
 assert cat.loc["rainfall_lag_7", "base_display"] == "Rainfall" and cat.loc["rainfall_lag_2", "lag"] == 2
 assert P.split_lag("DISEASE_COUNT_lag_52") == ("DISEASE_COUNT", 52) and P.split_lag("pop") == ("pop", 0)
+# ---- manual upload: validation and session view
+from dash_lib import newdata
+bt = pd.DataFrame({"barangay": [f"Brgy {i:02d}" for i in range(10)], "cluster": list("AABBCCDDEE")})
+w0 = pd.Timestamp("2026-03-27"); wk = [w0 + pd.Timedelta(weeks=i) for i in range(4)]
+def rows(weeks, skip=()):
+    return pd.DataFrame([(f"{w:%Y-%m-%d}", b, str(i % 3)) for w in weeks for i, b in enumerate(bt.barangay) if (w, b) not in skip],
+                        columns=["week_start", "barangay", "cases"])
+ok = newdata.validate(rows(wk), bt, clusters)
+assert ok.ok and not ok.missing_weeks and ok.counts.shape == (4, 6) and ok.first_week == w0 and ok.last_week == wk[-1]
+assert np.allclose(ok.counts["CITY"], ok.counts[clusters].sum(axis=1)) and ok.counts.loc[w0, "A"] == 0 + 1
+# missing barangay rows and a missing week become zeros with a warning that lists the weeks
+gap = newdata.validate(rows([wk[0], wk[1], wk[3]], skip={(wk[1], "Brgy 03")}), bt, clusters)
+assert gap.ok and gap.missing_weeks == [f"{wk[1]:%Y-%m-%d}", f"{wk[2]:%Y-%m-%d}"] and len(gap.counts) == 4
+assert gap.counts.loc[wk[2], "CITY"] == 0
+bad = rows(wk[:2]).astype(object)
+bad.loc[0, "barangay"] = "Nowhere"; bad.loc[1, "week_start"] = "2026-03-28"; bad.loc[2, "cases"] = "-3"; bad.loc[3, "cases"] = "2.5"
+bad.loc[4, "cases"] = None; bad.loc[5, "week_start"] = "not a date"; bad.loc[6, "barangay"] = None; bad.loc[7, "week_start"] = bad.loc[8, "week_start"]
+r = newdata.validate(bad, bt, clusters); print("\n".join(r.errors))
+assert not r.ok and r.errors[0] == "Row at position 0: Nowhere is not a valid barangay name."
+assert "2026-03-28 is not a valid week start date." in r.errors[1] and r.errors[2].endswith("Disease case count -3 is negative.")
+assert "Disease case count 2.5 is not an integer." in r.errors[3] and "Disease case count is missing." in r.errors[4]
+assert "not a date is not a valid week start date." in r.errors[5] and "Barangay name is missing." in r.errors[6]
+assert newdata.validate(pd.DataFrame({"a": [1]}), bt, clusters).errors[0].startswith("The file must have the columns")
+# completeness is checked only after the last base week, up to the last uploaded week; earlier rows are not used
+late = newdata.validate(rows(wk[1:]), bt, clusters, base_last_week=wk[0])
+assert late.ok and late.first_week == wk[1] and late.missing_weeks == []
+skipped = newdata.validate(rows([wk[2], wk[3]]), bt, clusters, base_last_week=wk[0])      # week wk[1] has no rows at all
+assert skipped.ok and skipped.first_week == wk[1] and skipped.missing_weeks == [f"{wk[1]:%Y-%m-%d}"] and skipped.counts.loc[wk[1], "CITY"] == 0
+old_only = newdata.validate(rows(wk[:2]), bt, clusters, base_last_week=wk[1])
+assert not old_only.ok and old_only.headline.startswith("Error: The file has no weeks after")
+assert newdata.validate(rows(wk[:2]).replace("Brgy 00", "X"), bt, clusters).headline == "Error: There are invalid data values"
+# session view: base data only, then added weeks
+H0 = d.horizons[0]; fo = d.fc[(H0, M.CITY)].index
+base_last = fo[-40]; base_origin = fo[-52]
+v0 = M.session_view(d, base_last_week=base_last, base_last_origin=base_origin)
+assert v0.actuals.index.max() == base_last and M.origin_weeks(v0)[-1] == base_origin and v0.version == "base"
+assert v0.forecast_long["origin_week"].max() == base_origin and len(M.origin_weeks(d)) > len(M.origin_weeks(v0))
+assert v0.feature_wide("CASES").index.max() == base_last and d.feature_wide("CASES").index.max() > base_last      # not shared
+nxt = [base_last + pd.Timedelta(weeks=i) for i in range(1, 6)]
+add = pd.DataFrame(1.0, index=pd.DatetimeIndex(nxt, name="week"), columns=list(clusters) + [M.CITY])
+v1 = M.session_view(d, add, version="u1", base_last_week=base_last, base_last_origin=base_origin)
+assert M.origin_weeks(v1)[-1] == nxt[-1] and v1.actuals.index.max() == nxt[-1] and v1.actuals.loc[nxt[0], "A"] == 1.0
+gapped = add.iloc[2:]                                                           # starts two weeks after the base data ends
+v2 = M.session_view(d, gapped, base_last_week=base_last, base_last_origin=base_origin)
+assert M.origin_weeks(v2)[-1] == base_last
+vs = M.session_view(d, skip=True, base_last_week=base_last, base_last_origin=base_origin)
+assert M.origin_weeks(vs)[-1] == fo.max() and vs.actuals.index.max() == d.actuals.index.max()
+assert M.complete_up_to(add, base_last) == nxt[-1]
+mf = M.map_frames(v0, "forecast", "1"); assert max(mf.weeks) <= base_origin + pd.Timedelta(weeks=1)
+assert M.map_frames(v0, "cases", "CASES").weeks[-1] == base_last
+
 # ---- vault: password-derived encryption round trip
 from dash_lib import vault
 vd = Path(tempfile.mkdtemp()); (vd / "r").mkdir(); (vd / "r/a.parquet").write_bytes(b"secret-bytes")

@@ -121,8 +121,22 @@ def disease_label(key: str) -> str:
     return load_meta()["diseases"][key]["label"]
 
 
+def skip_manual() -> bool:
+    """Debug option: use the full disease data instead of the base dataset plus manual uploads."""
+    return bool(st.session_state.get("skip_manual", False))
+
+
 def get_disease(key: str) -> M.DiseaseData:
-    return _load_disease(key)
+    """The data this session sees: the base disease dataset plus this session's uploaded weeks (see model.session_view)."""
+    full = _load_disease(key)
+    upload = None if skip_manual() else st.session_state.get(f"new_data_{key}")
+    version = "skip" if skip_manual() else (upload["version"] if upload else "base")
+    cached = st.session_state.get(f"view_{key}")
+    if cached is not None and cached[0] == version:
+        return cached[1]
+    view = M.session_view(full, None if upload is None else upload["counts"], skip_manual(), version)
+    st.session_state[f"view_{key}"] = (version, view)
+    return view
 
 
 def warm_up() -> None:
@@ -146,10 +160,10 @@ def default_origin(origins: pd.DatetimeIndex):
 # Cached figures (built once per selection, from small precomputed arrays)
 # ----------------------------------------------------------------------------------------------
 
-@st.cache_resource(max_entries=32, show_spinner=False)
-def map_figure(disease: str, category: str, variable: str):
-    d = _load_disease(disease)
-    frames = M.map_frames(d, category, variable)
+@st.cache_resource(max_entries=8, show_spinner=False)
+def map_figure(disease: str, category: str, variable: str, version: str, _d):
+    """`version` identifies the disease data in _d (the session view), so figures are never shared across different data."""
+    frames = M.map_frames(_d, category, variable)
     geo = load_geo()
     return charts.fig_map_animated(frames, geo["clusters"], geo["extras"])
 

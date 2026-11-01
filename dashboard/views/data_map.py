@@ -39,7 +39,7 @@ def map_section():
             f"The values are lagged and come from {lag} week{'s' if lag != 1 else ''} prior.", unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.plotly_chart(loaders.map_figure(d.key, category, variable), key=f"map_{d.key}_{category}_{variable}",
+        st.plotly_chart(loaders.map_figure(d.key, category, variable, d.version, d), key=f"map_{d.key}_{category}_{variable}_{d.version}",
                         config=charts.CHART_CONFIG)
 
     with st.expander("How to use this map?"):

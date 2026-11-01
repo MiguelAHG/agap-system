@@ -21,6 +21,7 @@ pages = [
 ]
 if loaders.forecasts_available():
     pages.insert(0, st.Page("views/overview.py", title="Forecast Overview", default=True))
+    pages.append(st.Page("views/input_data.py", title="Input Disease Data"))
 navigation = st.navigation(pages, position="sidebar")
 
 with st.sidebar:

@@ -8,7 +8,7 @@ st.title(f"{d.label} Forecast Overview")
 
 origins = M.origin_weeks(d)
 week_key = f"origin_week_{d.key}"
-if week_key not in st.session_state:
+if week_key not in st.session_state or st.session_state[week_key] not in origins:
     st.session_state[week_key] = loaders.default_origin(origins)
 
 

@@ -12,6 +12,7 @@ Conventions
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
 
@@ -28,6 +29,8 @@ CATEGORY_LABELS = {
     "environmental": "Historical environmental variables",
     "population": "Historical population variables",
 }
+BASE_LAST_WEEK = pd.Timestamp("2026-03-20")       # last week of the base disease dataset (12th week of 2026)
+BASE_LAST_ORIGIN = pd.Timestamp("2025-12-26")     # last current week selectable with the base dataset only
 TREND_CATEGORIES = ("cases", "climatic", "environmental", "population")
 CATALOG_COLUMNS = ["name", "base", "base_display", "lag", "category", "unit", "static"]
 
@@ -108,7 +111,9 @@ class DiseaseData:
     features: pd.DataFrame | None      # long: week, unit, <feature columns>
     performance: pd.DataFrame | None   # restricted; None when not available
     case_lags: list = field(default_factory=list)   # lags (weeks) of the disease count used as model inputs
-    _wide: dict = field(default_factory=dict)
+    version: str = "full"              # which disease data this object holds (used in cache keys)
+    _wide: dict = field(default_factory=dict)       # non-disease features (shared between session views)
+    _case: dict = field(default_factory=dict)       # disease-count series (specific to this object's actuals)
 
     @property
     def has_actuals(self) -> bool:
@@ -124,11 +129,12 @@ class DiseaseData:
 
     def feature_wide(self, name: str) -> pd.DataFrame:
         """week x unit table of one feature (cached)."""
+        if name in set(self.catalog.loc[self.catalog["category"] == "cases", "name"]):
+            if name not in self._case:
+                self._case[name] = case_wide(self.actuals, name)
+            return self._case[name]
         if name not in self._wide:
-            if name in set(self.catalog.loc[self.catalog["category"] == "cases", "name"]):
-                self._wide[name] = case_wide(self.actuals, name)
-            else:
-                self._wide[name] = (self.features.pivot(index="week", columns="unit", values=name).sort_index())
+            self._wide[name] = (self.features.pivot(index="week", columns="unit", values=name).sort_index())
         return self._wide[name]
 
 
@@ -180,6 +186,43 @@ def build_disease_data(key, meta, forecasts, features, actuals, performance, uni
         catalog=catalog, forecast_long=forecasts, fc=fc, actuals=actuals, features=features, performance=performance,
         case_lags=list(case_lags),
     )
+
+
+def complete_up_to(counts: pd.DataFrame, start) -> pd.Timestamp:
+    """Last week such that every week from `start` to it is present in counts (counts rows are complete weeks)."""
+    week = pd.Timestamp(start)
+    step = pd.Timedelta(days=7)
+    while week + step in counts.index:
+        week += step
+    return week
+
+
+def session_view(d: DiseaseData, added: pd.DataFrame | None = None, skip: bool = False, version: str = "base",
+                 base_last_week=None, base_last_origin=None) -> DiseaseData:
+    """
+    The disease data one session sees: the base dataset (true counts up to the last base week) plus any added weeks.
+    `added` holds cluster totals by week (uploaded data); with skip, the weeks after the base dataset in the full data
+    are added instead. Current weeks are limited to what the data supports, and forecasts made later are hidden.
+    The full object d is shared between sessions and is never modified.
+    """
+    if not d.has_actuals or not d.fc:
+        return d
+    base_last_week = pd.Timestamp(base_last_week) if base_last_week is not None else BASE_LAST_WEEK
+    base_last_origin = pd.Timestamp(base_last_origin) if base_last_origin is not None else BASE_LAST_ORIGIN
+    full = d.actuals
+    base = full.loc[:base_last_week]
+    if skip:
+        added = full.loc[full.index > base_last_week]
+    last_origin = d.fc[(d.horizons[0], CITY)].index.max()
+    if added is not None and len(added):
+        added = added.reindex(columns=base.columns)
+        merged = pd.concat([base[~base.index.isin(added.index)], added]).sort_index()
+        limit = min(complete_up_to(merged, base_last_week), last_origin)
+    else:
+        merged, limit = base, base_last_origin
+    fc = {k: f[f.index <= limit] for k, f in d.fc.items()}
+    forecast_long = None if d.forecast_long is None else d.forecast_long[d.forecast_long["origin_week"] <= limit]
+    return dataclasses.replace(d, actuals=merged, fc=fc, forecast_long=forecast_long, version=version, _case={})
 
 
 # ----------------------------------------------------------------------------------------------
