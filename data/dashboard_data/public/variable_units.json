@@ -1,0 +1,20 @@
+{
+  "rainfall": "mm/day",
+  "temp": "°C",
+  "tmin": "°C",
+  "tmax": "°C",
+  "wind": "m/s",
+  "rel_hum": "%",
+  "spec_hum": "kg/kg",
+  "mean_evi": "",
+  "median_evi": "",
+  "std_evi": "",
+  "pop": "people",
+  "popdensity_km2": "people/km²",
+  "elevation_mean": "m",
+  "elevation_median": "m",
+  "elevation_std": "m",
+  "flood_low_risk_perc": "% of cluster area",
+  "flood_medium_risk_perc": "% of cluster area",
+  "flood_high_risk_perc": "% of cluster area"
+}

@@ -1,0 +1,27 @@
+# Python and notebooks
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+.env
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Restricted data: plaintext stays on local machine, only restricted_enc/ is committed
+data/dashboard_data/restricted/
+
+# Initial development code
+src/
+
+# Data that should not be tracked
+data/manual_inputs/
+data/downloads/
+data/intermediary_files/
+
+# Model files
+*.pt
+
+# Script for running app on local
+*.bat
