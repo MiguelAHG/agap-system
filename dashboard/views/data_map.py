@@ -10,7 +10,7 @@ st.title(f"{d.label} Data Map")
 @st.fragment
 def map_section():
     cats = M.available_categories(d)
-    # Selectors are stacked and stepped to the right: category, then variable, then time series.
+    # The selectors are stacked and indented: category, variable, then time series.
     category = st.selectbox("Category", [k for k, _ in cats], format_func=dict(cats).get, key=f"map_cat_{d.key}")
 
     options = M.variable_options(d, category)

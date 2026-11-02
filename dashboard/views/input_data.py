@@ -13,7 +13,7 @@ skip = loaders.skip_manual()
 def _delete_upload():
     for k in (state_key, result_key, handled_key):
         st.session_state.pop(k, None)
-    st.session_state[counter_key] = st.session_state.get(counter_key, 0) + 1      # empties the file uploader
+    st.session_state[counter_key] = st.session_state.get(counter_key, 0) + 1 # gives a new, empty file uploader
 
 
 def _set_skip():
@@ -33,7 +33,7 @@ with st.container(border=True):
                                 key=f"uploader_{key}_{st.session_state.get(counter_key, 0)}")
     if uploaded is not None and uploaded.file_id != st.session_state.get(handled_key):
         st.session_state[handled_key] = uploaded.file_id
-        st.session_state.pop(state_key, None)                  # an earlier upload is treated as if it never happened
+        st.session_state.pop(state_key, None) # an earlier upload is treated as if it never happened
         result = newdata.validate_csv(uploaded, loaders.load_geo()["barangay_table"], d.clusters, M.CITY,
                                         base_last_week=M.BASE_LAST_WEEK)
         if result.ok:

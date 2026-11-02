@@ -1,10 +1,10 @@
 """
-newdata.py
+Checks an uploaded weekly case file with the columns week_start, barangay and cases.
 
-Validation of a manually uploaded weekly case file (columns week_start, barangay, cases). Pure pandas, no Streamlit.
+A week is complete when every barangay has a value for it. Missing barangay rows and missing weeks inside the uploaded
+range are filled with zero and reported.
 
-A week is "complete" when every barangay has a value for it. Inside the uploaded range, missing barangay rows (and whole
-missing weeks) are filled with zero and reported in a warning; any invalid value rejects the whole file.
+Any invalid value makes the whole file get rejected.
 """
 
 from __future__ import annotations
@@ -15,17 +15,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-GRID_ORIGIN = pd.Timestamp("2010-01-01")          # weeks start on a 7-day grid anchored here
+GRID_ORIGIN = pd.Timestamp("2010-01-01") # weeks start on a 7-day grid that begins on this date
 COLUMNS = ("week_start", "barangay", "cases")
 
 
 @dataclass
 class UploadResult:
     ok: bool
-    errors: list = field(default_factory=list)       # lines of the log shown when the file is rejected
+    errors: list = field(default_factory=list) # lines of the log shown when the file is rejected
     headline: str = "Error: There are invalid data values"
-    missing_weeks: list = field(default_factory=list)  # week starts (YYYY-MM-DD) that needed barangay rows filled with zero
-    counts: pd.DataFrame | None = None               # week x (clusters + CITY), cluster totals of the uploaded weeks
+    missing_weeks: list = field(default_factory=list) # week starts (YYYY-MM-DD) where missing barangay rows were filled with zero
+    counts: pd.DataFrame | None = None # cluster totals of the uploaded weeks, with CITY as an extra column
     version: str = ""
     first_week: pd.Timestamp | None = None
     last_week: pd.Timestamp | None = None
@@ -36,7 +36,7 @@ def _blank(value) -> bool:
 
 
 def _parse_count(value):
-    """(count or None, error message or None)."""
+    """Returns (count, None) if the value is valid, otherwise (None, error message)."""
     if _blank(value):
         return None, "Disease case count is missing."
     text = str(value).strip()
@@ -54,9 +54,9 @@ def _parse_count(value):
 def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: str = "CITY",
              base_last_week=None) -> UploadResult:
     """
-    `barangays` has columns barangay and cluster (all barangays of the city). Hard checks on every row come first.
-    Completeness is then checked for the weeks after base_last_week (all weeks of the file when None) up to the last
-    uploaded week; rows of the file for earlier weeks are not used.
+    barangays has the columns barangay and cluster, for every barangay of the city. The checks on each row come first.
+    Completeness is checked for the weeks after base_last_week (all weeks of the file if None) up to the last uploaded
+    week. Rows for earlier weeks are not used.
     """
     lookup = {str(c).strip().lower(): c for c in raw.columns}
     if not set(COLUMNS) <= set(lookup):
@@ -94,7 +94,7 @@ def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: s
         counts[pos] = value
 
     seen = set()
-    for pos in range(n):                                   # the same barangay and week twice is ambiguous
+    for pos in range(n): # the same barangay and week twice is not allowed
         if names[pos] is not None and not pd.isna(dates[pos]):
             key = (names[pos], dates[pos])
             if key in seen:

@@ -1,14 +1,14 @@
 """
-vault.py
+Encryption of the restricted data files with a password.
 
-Password-based encryption of the restricted data files. The key is derived from the dashboard password (PBKDF2), so the
-password is never stored anywhere: typing the correct password both unlocks the app and decrypts the data in memory.
-No Streamlit imports, so the precompute notebook can use it too.
+The key comes from the dashboard password (PBKDF2), so the
+password itself is not stored. Typing the right password unlocks the app and decrypts the data.
+This file does not use Streamlit, so the precompute notebook can use it too.
 
 Files in data/dashboard_data/restricted_enc/:
-  salt.bin     random salt (created once, then reused)
-  check.enc    a short known text, used to test a password
-  <name>.enc   one per restricted parquet file
+- salt.bin    random salt, made once and reused
+- check.enc   a short known text, used to test a password
+- <name>.enc  one for each restricted parquet file
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def encrypt(data: bytes, key: bytes) -> bytes:
 
 
 def decrypt(token: bytes, key: bytes) -> bytes:
-    """Raises cryptography.fernet.InvalidToken when the key is wrong."""
+    """Raises cryptography.fernet.InvalidToken if the key is wrong."""
     return Fernet(key).decrypt(token)
 
 
@@ -46,7 +46,7 @@ def check_key(check_token: bytes, key: bytes) -> bool:
 
 
 def encrypt_folder(src_dir: Path, out_dir: Path, password: str) -> list:
-    """Encrypt every .parquet in src_dir into out_dir. Returns the written paths."""
+    """Encrypts every .parquet file in src_dir into out_dir and returns the new paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
     salt_path = out_dir / "salt.bin"
     if not salt_path.exists():
@@ -61,7 +61,7 @@ def encrypt_folder(src_dir: Path, out_dir: Path, password: str) -> list:
         target.write_bytes(encrypt(path.read_bytes(), key))
         keep.add(target.name)
         written.append(target)
-    for stale in out_dir.glob("*"):                           # files from an earlier run that no longer exist
+    for stale in out_dir.glob("*"): # remove files from an earlier run that are not needed now
         if stale.name not in keep:
             stale.unlink()
     return written

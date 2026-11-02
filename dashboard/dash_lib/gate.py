@@ -1,4 +1,4 @@
-"""Password screen shown before anything else when the restricted data is only available encrypted."""
+"""Password screen. It is shown first when the restricted data exists only in encrypted form."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from . import loaders, vault
 
 
 def unlock_screen() -> None:
-    """Returns when the session is unlocked (or no lock applies); otherwise shows the password screen and stops."""
+    """
+    Does nothing if the session is already unlocked or no lock is needed. Otherwise it shows the password form and stops the page.
+    """
     if not loaders.lock_required() or st.session_state.get("vault_key"):
         return
 

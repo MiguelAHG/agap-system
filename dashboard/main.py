@@ -1,8 +1,4 @@
-"""
-AGAP dashboard entry point.
-
-Run from the project root:   streamlit run dashboard/main.py
-"""
+"""Starting point of the dashboard"""
 
 import streamlit as st
 

@@ -1,9 +1,6 @@
 """
-loaders.py
-
-Everything that touches Streamlit caching and the disk. Data files are read once per server process with
-st.cache_resource (no copy is made per rerun, so treat the returned objects as read-only). Figures that never change for
-a given selection are cached the same way, so moving a selector reuses an already built chart.
+Loading and caching of data. Files are read once per server process with st.cache_resource, so the returned objects are
+shared and must not be changed. Figures are cached too, so changing a selector reuses a figure that was already built.
 """
 
 from __future__ import annotations
@@ -20,7 +17,7 @@ from . import charts
 from . import model as M
 from . import vault
 
-# Set to e.g. "2025-07-04" to open the dashboard on a specific current week. None means the latest available week.
+# Put a date such as "2025-07-04" here to open the dashboard on that current week. None opens the latest week.
 DEFAULT_ORIGIN_WEEK = None
 
 
@@ -29,17 +26,19 @@ def _project_root() -> Path:
         from pyprojroot import here
         return Path(here())
     except Exception:
-        return Path(__file__).resolve().parents[2]      # dash_lib -> dashboard -> project root
+        return Path(__file__).resolve().parents[2] # up from dash_lib to dashboard to the project root
 
 
 DATA_DIR = _project_root() / "data/dashboard_data"
 PUBLIC_DIR = DATA_DIR / "public"
 RESTRICTED_DIR = DATA_DIR / "restricted"
-ENC_DIR = DATA_DIR / "restricted_enc"          # encrypted copies of the restricted files (safe to commit)
+ENC_DIR = DATA_DIR / "restricted_enc" # encrypted copies of the restricted files, safe to commit
 
 
 def _force_lock() -> bool:
-    """Set the environment variable AGAP_FORCE_LOCK=1 to test the password screen on a machine that has the plaintext files."""
+    """
+    Set the environment variable AGAP_FORCE_LOCK=1 to see the password screen on a computer that has the plaintext files.
+    """
     return bool(os.environ.get("AGAP_FORCE_LOCK"))
 
 
@@ -49,7 +48,9 @@ def _plaintext_path(name: str):
 
 
 def lock_required() -> bool:
-    """True when encrypted restricted data exists and there is no plaintext copy to read instead (a deployed copy)."""
+    """
+    True if encrypted files exist and there is no plaintext copy to use instead. This is the case for the deployed app.
+    """
     has_enc = (ENC_DIR / "check.enc").exists()
     has_plain = any(RESTRICTED_DIR.glob("*.parquet")) if RESTRICTED_DIR.exists() else False
     return has_enc and (_force_lock() or not has_plain)
@@ -57,10 +58,10 @@ def lock_required() -> bool:
 
 def read_restricted_parquet(name: str):
     """
-    The only way the app reads restricted files: true disease counts, forecasts, intervals and error metrics.
-    Reads the local plaintext file when it exists (your machine), otherwise decrypts restricted_enc/<name>.enc in memory
-    with the key from the password screen. Returns None when neither is available, and the app then hides everything
-    that needs the restricted data. This is the single place to change if the data moves to private storage.
+    All restricted files are read here: true counts, forecasts, intervals and error values.
+    The plaintext file is used if it exists (your own computer). If not, the encrypted file is decrypted in memory with the
+    key from the password screen. If neither is available it returns None, and the app hides what needs this data.
+    Change this function if the data moves somewhere else.
     """
     plain = _plaintext_path(name)
     if plain is not None:
@@ -78,7 +79,9 @@ def load_meta() -> dict:
 
 @st.cache_resource(show_spinner=False)
 def load_units() -> dict:
-    """{variable base: unit text} from variable_units.json (edited by hand). Missing file or key means no unit shown."""
+    """
+    Unit text of each variable, from variable_units.json, which is written by hand. A missing file or key means no unit is shown.
+    """
     path = PUBLIC_DIR / "variable_units.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
@@ -108,7 +111,7 @@ def _load_disease(key: str) -> M.DiseaseData:
 
 
 def forecasts_available() -> bool:
-    """True when the restricted forecast files are present (they are not in the public deployment)."""
+    """True if the forecast files exist, either as plaintext or encrypted."""
     return all(_plaintext_path(f"forecasts_{k}.parquet") is not None or (ENC_DIR / f"forecasts_{k}.parquet.enc").exists()
                for k in load_meta()["diseases"])
 
@@ -122,12 +125,14 @@ def disease_label(key: str) -> str:
 
 
 def skip_manual() -> bool:
-    """Debug option: use the full disease data instead of the base dataset plus manual uploads."""
+    """Debug option. Uses the full disease data instead of the base data plus manual uploads."""
     return bool(st.session_state.get("skip_manual", False))
 
 
 def get_disease(key: str) -> M.DiseaseData:
-    """The data this session sees: the base disease dataset plus this session's uploaded weeks (see model.session_view)."""
+    """
+    Returns the data for this session: the base data plus any weeks this session uploaded. See session_view in model.py.
+    """
     full = _load_disease(key)
     upload = None if skip_manual() else st.session_state.get(f"new_data_{key}")
     version = "skip" if skip_manual() else (upload["version"] if upload else "base")
@@ -140,7 +145,7 @@ def get_disease(key: str) -> M.DiseaseData:
 
 
 def warm_up() -> None:
-    """Load every disease on the first run so switching diseases later is instant."""
+    """Loads every disease on the first run, so switching diseases later is fast."""
     with st.spinner("Loading data..."):
         load_meta()
         load_geo()
@@ -156,13 +161,11 @@ def default_origin(origins: pd.DatetimeIndex):
     return origins[-1]
 
 
-# ----------------------------------------------------------------------------------------------
-# Cached figures (built once per selection, from small precomputed arrays)
-# ----------------------------------------------------------------------------------------------
-
 @st.cache_resource(max_entries=8, show_spinner=False)
 def map_figure(disease: str, category: str, variable: str, version: str, _d):
-    """`version` identifies the disease data in _d (the session view), so figures are never shared across different data."""
+    """
+    version names the disease data inside _d. It is part of the cache key, so a figure is not reused for different data.
+    """
     frames = M.map_frames(_d, category, variable)
     geo = load_geo()
     return charts.fig_map_animated(frames, geo["clusters"], geo["extras"])

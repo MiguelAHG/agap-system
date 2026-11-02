@@ -1,13 +1,11 @@
 """
-model.py
+Prepares the numbers that the dashboard shows. It only uses pandas and numpy, with no Streamlit or Plotly, so it can be
+tested on its own. charts.py only draws what these functions return.
 
-All data shaping for the dashboard. Pure pandas / numpy: no Streamlit or Plotly imports, so every function here can be
-unit-tested and reused. The chart code (charts.py) only draws what these functions return.
-
-Conventions
-  unit        a cluster name ("A", "B", ...) or CITY for citywide totals
-  origin week the week a forecast is made ("current week")
-  target week the week a forecast is about (origin week + horizon)
+Terms:
+- unit: a cluster name such as "A", or CITY for the whole city
+- origin week: the week a forecast is made (the current week)
+- target week: the week a forecast is about (origin week plus horizon)
 """
 
 from __future__ import annotations
@@ -29,15 +27,11 @@ CATEGORY_LABELS = {
     "environmental": "Historical environmental variables",
     "population": "Historical population variables",
 }
-BASE_LAST_WEEK = pd.Timestamp("2026-03-20")       # last week of the base disease dataset (12th week of 2026)
-BASE_LAST_ORIGIN = pd.Timestamp("2025-12-26")     # last current week selectable with the base dataset only
+BASE_LAST_WEEK = pd.Timestamp("2026-03-20") # last week of the base disease data (12th week of 2026)
+BASE_LAST_ORIGIN = pd.Timestamp("2025-12-26") # last current week that can be chosen with only the base data
 TREND_CATEGORIES = ("cases", "climatic", "environmental", "population")
 CATALOG_COLUMNS = ["name", "base", "base_display", "lag", "category", "unit", "static"]
 
-
-# ----------------------------------------------------------------------------------------------
-# Small helpers
-# ----------------------------------------------------------------------------------------------
 
 def level_key(level: float) -> str:
     return f"{level * 100:g}"
@@ -60,22 +54,22 @@ def fmt_week(ts) -> str:
 
 
 def week_end(ts) -> pd.Timestamp:
-    """Last day of a week that starts on ts."""
+    """Last day of the week that starts on ts."""
     return pd.Timestamp(ts) + pd.Timedelta(days=6)
 
 
 def fmt_span(ts) -> str:
-    """'Jul 10, 2026 - Jul 16, 2026'"""
+    """Example: Jul 10, 2026 - Jul 16, 2026"""
     return f"{fmt_week(ts)} - {fmt_week(week_end(ts))}"
 
 
 def fmt_span_short(ts) -> str:
-    """'Jul 10-Jul 16' (no year)"""
+    """Example: Jul 10-Jul 16 (no year)"""
     return f"{pd.Timestamp(ts):%b %d}-{week_end(ts):%b %d}"
 
 
 def iso_span(ts) -> str:
-    """'2026-07-10 to 2026-07-16'"""
+    """Example: 2026-07-10 to 2026-07-16"""
     return f"{pd.Timestamp(ts):%Y-%m-%d} to {week_end(ts):%Y-%m-%d}"
 
 
@@ -86,15 +80,11 @@ def fmt_num(value, decimals: int = 1) -> str:
 
 
 def pct_change(current, previous):
-    """Percent change, or None when it is not meaningful."""
+    """Percent change. Returns None when it cannot be computed."""
     if previous is None or current is None or pd.isna(previous) or pd.isna(current) or previous <= 0:
         return None
     return (current - previous) / previous * 100.0
 
-
-# ----------------------------------------------------------------------------------------------
-# Container
-# ----------------------------------------------------------------------------------------------
 
 @dataclass
 class DiseaseData:
@@ -103,17 +93,17 @@ class DiseaseData:
     horizons: list
     clusters: list
     levels: list
-    models: dict                       # horizon -> text
-    catalog: pd.DataFrame              # public features: name, base, base_display, lag, category, unit, static
-    forecast_long: pd.DataFrame | None  # restricted; None when forecasts are not available
-    fc: dict                           # (horizon, unit) -> DataFrame indexed by origin_week
-    actuals: pd.DataFrame | None       # index week, columns clusters + CITY (true counts; restricted)
-    features: pd.DataFrame | None      # long: week, unit, <feature columns>
-    performance: pd.DataFrame | None   # restricted; None when not available
-    case_lags: list = field(default_factory=list)   # lags (weeks) of the disease count used as model inputs
-    version: str = "full"              # which disease data this object holds (used in cache keys)
-    _wide: dict = field(default_factory=dict)       # non-disease features (shared between session views)
-    _case: dict = field(default_factory=dict)       # disease-count series (specific to this object's actuals)
+    models: dict # horizon -> model text
+    catalog: pd.DataFrame # public features, with name, base, display name, lag, category, unit and static
+    forecast_long: pd.DataFrame | None # restricted, None if forecasts are not available
+    fc: dict # (horizon, unit) -> table indexed by origin week
+    actuals: pd.DataFrame | None # true counts by week, one column per cluster plus CITY (restricted)
+    features: pd.DataFrame | None # long table with week, unit and one column per feature
+    performance: pd.DataFrame | None # restricted, None if not available
+    case_lags: list = field(default_factory=list) # lags in weeks of the disease count that the models use as inputs
+    version: str = "full" # says which disease data this object has, used in cache keys
+    _wide: dict = field(default_factory=dict) # features that are not disease counts, shared by all sessions
+    _case: dict = field(default_factory=dict) # disease count series, only for this object
 
     @property
     def has_actuals(self) -> bool:
@@ -128,7 +118,7 @@ class DiseaseData:
         return [CITY] + list(self.clusters)
 
     def feature_wide(self, name: str) -> pd.DataFrame:
-        """week x unit table of one feature (cached)."""
+        """Table of one feature, with weeks as rows and units as columns. The result is cached."""
         if name in set(self.catalog.loc[self.catalog["category"] == "cases", "name"]):
             if name not in self._case:
                 self._case[name] = case_wide(self.actuals, name)
@@ -139,7 +129,9 @@ class DiseaseData:
 
 
 def case_catalog(case_lags) -> pd.DataFrame:
-    """Catalog rows for the disease count series: weekly cases (current week and each modelled lag), then 4-week totals."""
+    """
+    Catalog rows for the disease counts. Includes weekly cases (this week and each lag the models use), then the 4-week total which is not a feature used in the models but is useful for the user to know
+    """
     rows = [("CASES", "CASES", "Weekly cases", 0, "cases", "", False)]
     for k in sorted({int(x) for x in case_lags} - {0}):
         rows.append((f"CASES_lag_{k}", "CASES", "Weekly cases", k, "cases", "", False))
@@ -150,12 +142,15 @@ def case_catalog(case_lags) -> pd.DataFrame:
 def _four_week_sum(wide: pd.DataFrame) -> pd.DataFrame:
     summed = wide.rolling(4, min_periods=4).sum()
     span = pd.Series(wide.index, index=wide.index).diff(3).dt.days
-    summed.loc[~(span <= 21).to_numpy()] = np.nan          # windows that cross the 2020-21 gap are not real 4-week totals
+    summed.loc[~(span <= 21).to_numpy()] = np.nan # a window across the 2020-21 gap is not a real 4-week total
     return summed
 
 
 def case_wide(actuals: pd.DataFrame, name: str) -> pd.DataFrame:
-    """Case series by inference week. A lagged series at week w holds the count of week w - lag (NaN across data gaps)."""
+    """
+    Case counts by inference week. For a lagged series, the value at week w is the count of week w minus the lag.
+    It is empty (NaN) where the data has gaps.
+    """
     if name == "CASES4":
         return _four_week_sum(actuals)
     lag = int(name.rsplit("_lag_", 1)[1]) if "_lag_" in name else 0
@@ -173,7 +168,7 @@ def build_disease_data(key, meta, forecasts, features, actuals, performance, uni
             fc[(int(h), str(unit))] = group.drop(columns=["unit", "horizon"]).set_index("origin_week").sort_index()
     catalog = pd.DataFrame(meta["features"], columns=CATALOG_COLUMNS)
     catalog = catalog[catalog["category"] != "cases"]
-    if units is not None:                                   # unit text per variable base, from variable_units.json
+    if units is not None: # unit text of each variable, from variable_units.json
         catalog["unit"] = catalog["base"].map(units).fillna("")
     if case_lags is None:
         case_lags = meta.get("case_lags", [])
@@ -189,7 +184,7 @@ def build_disease_data(key, meta, forecasts, features, actuals, performance, uni
 
 
 def complete_up_to(counts: pd.DataFrame, start) -> pd.Timestamp:
-    """Last week such that every week from `start` to it is present in counts (counts rows are complete weeks)."""
+    """Last week such that all weeks from start up to it are in counts."""
     week = pd.Timestamp(start)
     step = pd.Timedelta(days=7)
     while week + step in counts.index:
@@ -200,10 +195,10 @@ def complete_up_to(counts: pd.DataFrame, start) -> pd.Timestamp:
 def session_view(d: DiseaseData, added: pd.DataFrame | None = None, skip: bool = False, version: str = "base",
                  base_last_week=None, base_last_origin=None) -> DiseaseData:
     """
-    The disease data one session sees: the base dataset (true counts up to the last base week) plus any added weeks.
-    `added` holds cluster totals by week (uploaded data); with skip, the weeks after the base dataset in the full data
-    are added instead. Current weeks are limited to what the data supports, and forecasts made later are hidden.
-    The full object d is shared between sessions and is never modified.
+    The disease data that one session sees. It has the base data (true counts up to the last base week) plus any added
+    weeks. added has cluster totals by week from an upload. With skip, the weeks after the base data in the full data are
+    added instead. Current weeks are limited to what the data covers, and forecasts made after that are hidden.
+    The full object d is shared and is never changed.
     """
     if not d.has_actuals or not d.fc:
         return d
@@ -225,12 +220,8 @@ def session_view(d: DiseaseData, added: pd.DataFrame | None = None, skip: bool =
     return dataclasses.replace(d, actuals=merged, fc=fc, forecast_long=forecast_long, version=version, _case={})
 
 
-# ----------------------------------------------------------------------------------------------
-# Weeks
-# ----------------------------------------------------------------------------------------------
-
 def origin_weeks(d: DiseaseData) -> pd.DatetimeIndex:
-    """Weeks a forecast can be made (all horizons share them)."""
+    """Weeks in which a forecast can be made. All horizons share them."""
     return d.fc[(d.horizons[0], CITY)].index
 
 
@@ -241,14 +232,10 @@ def get_forecast(d: DiseaseData, horizon: int, unit: str, origin):
     return frame.loc[origin]
 
 
-# ----------------------------------------------------------------------------------------------
-# Key indicators
-# ----------------------------------------------------------------------------------------------
-
 def key_indicators(d: DiseaseData, origin, interval_level: float = 0.8) -> dict:
     """
-    Recent past (true counts, up to and including the current week) and the forecasts made in the current week, for
-    every horizon. Returns plain numbers; formatting happens in the view.
+    Numbers for the top of the overview page. Has recent true counts (up to and including the current week) and the
+    forecasts made in the current week, for every horizon. It returns plain numbers; supposed to be that the page formats them.
     """
     out = {"past": None, "future": []}
 
@@ -291,10 +278,6 @@ def key_indicators(d: DiseaseData, origin, interval_level: float = 0.8) -> dict:
     return out
 
 
-# ----------------------------------------------------------------------------------------------
-# Per-cluster forecast table (clusters as columns, so it stays short)
-# ----------------------------------------------------------------------------------------------
-
 def cluster_forecast_table(d: DiseaseData, origin, horizon: int) -> pd.DataFrame:
     rows = {"Point Forecast": {}}
     for level in d.levels:
@@ -316,7 +299,7 @@ def cluster_forecast_table(d: DiseaseData, origin, horizon: int) -> pd.DataFrame
 
 
 def barangay_grid(barangays: pd.DataFrame, cluster: str, target_rows: int = 6) -> pd.DataFrame:
-    """Barangay names of a cluster laid out in several columns (filled top to bottom) to save vertical space."""
+    """Barangay names of one cluster in several columns, filled top to bottom, to use less height."""
     names = sorted(barangays.loc[barangays["cluster"] == cluster, "barangay"].tolist())
     n_cols = max(2, math.ceil(len(names) / target_rows))
     n_rows = math.ceil(len(names) / n_cols) if names else 0
@@ -325,10 +308,6 @@ def barangay_grid(barangays: pd.DataFrame, cluster: str, target_rows: int = 6) -
             for c in range(n_cols) if c * n_rows < len(names)}
     return pd.DataFrame(grid)
 
-
-# ----------------------------------------------------------------------------------------------
-# Bar chart of all horizons
-# ----------------------------------------------------------------------------------------------
 
 def horizon_bars(d: DiseaseData, origin, unit: str) -> pd.DataFrame:
     rows = []
@@ -346,8 +325,8 @@ def horizon_bars(d: DiseaseData, origin, unit: str) -> pd.DataFrame:
 
 def spread_positions(values: list, min_gap: float) -> list:
     """
-    Label positions for `values` (ascending): as close to the values as possible while neighbours are at least
-    min_gap apart (isotonic regression on the gap-shifted values).
+    Label positions for values (sorted ascending). Each label is as close to its value as possible, while neighbors
+    stay at least min_gap apart.
     """
     shifted = [v - i * min_gap for i, v in enumerate(values)]
     blocks = []
@@ -365,17 +344,17 @@ def spread_positions(values: list, min_gap: float) -> list:
 
 def bar_label_layout(bars: pd.DataFrame, level_keys: list, y_span: float, gap_fraction: float = 0.05) -> pd.DataFrame:
     """
-    One row per number printed in the bar chart: horizon, kind (lo / pred / hi), level key, value, label_y, text.
-    Labels of one horizon are pushed apart vertically so numbers never overlap; text always shows the true value.
+    One row for each number printed on the bar chart: horizon, kind (lo, pred or hi), level, value, label_y and text.
+    Labels of the same horizon are pushed apart so they do not overlap. The text always shows the real value.
     """
     gap = gap_fraction * y_span
     n = len(level_keys)
     records = []
     for _, row in bars.iterrows():
         items = [("pred", "", float(row["pred"]), n)]
-        for rank, k in enumerate(reversed(level_keys)):              # widest level lowest
+        for rank, k in enumerate(reversed(level_keys)): # widest level at the bottom
             items.append(("lo", k, float(row[f"lo{k}"]), rank))
-        for rank, k in enumerate(level_keys):                        # narrowest level lowest
+        for rank, k in enumerate(level_keys): # narrowest level at the bottom
             items.append(("hi", k, float(row[f"hi{k}"]), n + 1 + rank))
         items.sort(key=lambda t: (t[2], t[3]))
         positions = spread_positions([t[2] for t in items], gap)
@@ -396,14 +375,10 @@ def nice_ticks(y_max: float, target: int = 6) -> list:
     return [round(i * step, 10) for i in range(count)]
 
 
-# ----------------------------------------------------------------------------------------------
-# Time series (actual vs forecast)
-# ----------------------------------------------------------------------------------------------
-
 def timeseries_data(d: DiseaseData, horizon: int, unit: str, origin, hide_future: bool = True) -> dict:
     """
-    Arrays for the forecast line chart, x = target week. With hide_future, true counts stop at the current week and
-    forecasts stop at the week being predicted from the current week.
+    Arrays for the line chart, with the target week on the x axis. With hide_future, true counts stop at the current week
+    and forecasts stop at the week predicted from the current week.
     """
     frame = d.fc[(horizon, unit)].reset_index()
     origin = pd.Timestamp(origin)
@@ -429,7 +404,7 @@ def timeseries_data(d: DiseaseData, horizon: int, unit: str, origin, hide_future
         y_candidates.append(np.nanmax(actual))
     full_start, full_end = pd.Timestamp(weeks.min()) - pd.Timedelta(days=14), pd.Timestamp(weeks.max()) + pd.Timedelta(days=60)
     end = min(predicted_week + pd.Timedelta(days=58), full_end) if hide_future else full_end
-    start = max(end - pd.Timedelta(days=365), full_start)                  # default view: the latest year-long window
+    start = max(end - pd.Timedelta(days=365), full_start) # starting view: the latest 12 months
     return {
         "full_range": (full_start, full_end), "window": (start, end),
         "weeks": weeks.to_numpy(), "pred": frame["pred"].to_numpy(), "actual": actual, "bands": bands,
@@ -439,22 +414,20 @@ def timeseries_data(d: DiseaseData, horizon: int, unit: str, origin, hide_future
     }
 
 
-# ----------------------------------------------------------------------------------------------
-# Historical trends
-# ----------------------------------------------------------------------------------------------
-
 def lag_label(lag: int) -> str:
     return "Current week" if lag == 0 else f"{lag} week{'s' if lag != 1 else ''} before the inference week"
 
 
 def variable_axis_title(d: DiseaseData, feature: str) -> str:
-    """Variable name with its unit in parentheses, e.g. 'Maximum temperature (°C)'. No parentheses when unitless."""
+    """
+    Variable name with its unit in parentheses, such as Maximum temperature (°C). No parentheses if there is no unit.
+    """
     row = d.catalog[d.catalog["name"] == feature].iloc[0]
     return f"{row['base_display']} ({row['unit']})" if row["unit"] else row["base_display"]
 
 
 def feature_title(d: DiseaseData, feature: str) -> str:
-    """Chart title for one feature column, e.g. 'Rainfall (mm/day), 7 weeks before the inference week'."""
+    """Chart title for one feature, such as Rainfall (mm/day), 7 weeks before the inference week."""
     row = d.catalog[d.catalog["name"] == feature].iloc[0]
     name = variable_axis_title(d, feature)
     return name if row["lag"] == 0 else f"{name}, {lag_label(int(row['lag']))}"
@@ -474,7 +447,7 @@ MODEL_NAMES = {
 
 
 def model_text(text: str) -> str:
-    """'rf (nonupsampled)' -> 'Random Forest (RF), non-upsampled'. Unknown names are shown as given."""
+    """Turns 'rf (nonupsampled)' into 'Random Forest (RF), non-upsampled'. Unknown names are shown as they are."""
     name, _, rest = text.partition(" (")
     rest = rest.rstrip(")")
     training = {"nonupsampled": "non-upsampled", "upsampled": "upsampled"}.get(rest, rest)
@@ -483,13 +456,18 @@ def model_text(text: str) -> str:
 
 
 def time_axis_label(d: DiseaseData, feature: str) -> str:
-    """'Inference week' when the feature is lagged (values are from earlier than the week shown), else 'Week'."""
+    """
+    Returns 'Inference week' for a lagged feature, because its value is from earlier than the week shown. Otherwise 'Week'.
+    """
     lag = int(d.catalog.loc[d.catalog["name"] == feature, "lag"].iloc[0])
     return "Inference week" if lag > 0 else "Week"
 
 
 def base_options(d: DiseaseData, category: str, include_static: bool) -> list:
-    """[(base key, display name)] of the variables in a category. Static ones (constant over time) are optional."""
+    """
+    List of (base key, display name) for the variables of a category. Static variables (that do not change over time)
+    are included only if asked.
+    """
     c = d.catalog[d.catalog["category"] == category]
     if not include_static:
         c = c[~c["static"]]
@@ -499,7 +477,9 @@ def base_options(d: DiseaseData, category: str, include_static: bool) -> list:
 
 
 def series_options(d: DiseaseData, base: str, include_static: bool) -> list:
-    """[(feature name, label)] of the series of one variable: current week first, then lags in increasing order."""
+    """
+    List of (feature name, label) for one variable: the current week first, then the lags from smallest to largest.
+    """
     c = d.catalog[d.catalog["base"] == base]
     if not include_static:
         c = c[~c["static"]]
@@ -512,7 +492,7 @@ def trend_categories(d: DiseaseData) -> list:
 
 
 def break_gaps(series: pd.Series, max_days: int = 7) -> pd.Series:
-    """Insert a NaN wherever consecutive weeks are further apart than max_days, so lines do not join across gaps."""
+    """Adds a NaN wherever two weeks are more than max_days apart, so a line is not drawn across a gap."""
     index = series.index
     if len(index) < 2:
         return series
@@ -529,15 +509,11 @@ def trend_series(d: DiseaseData, feature: str, unit: str) -> pd.Series:
 
 
 def seasonal_profile(series: pd.Series) -> tuple:
-    """(month x year table of monthly means, mean over years by month)."""
+    """Returns a month-by-year table of monthly means, and the mean of each month over all years."""
     clean = series.dropna()
     table = clean.groupby([clean.index.year, clean.index.month]).mean().unstack(0)
     return table, table.mean(axis=1)
 
-
-# ----------------------------------------------------------------------------------------------
-# Map frames
-# ----------------------------------------------------------------------------------------------
 
 @dataclass
 class MapFrames:
@@ -545,15 +521,15 @@ class MapFrames:
     colorbar_title: str
     weeks: list
     units: list
-    z: np.ndarray                  # [F, U]
-    custom: np.ndarray             # [F, U, K]
-    hover_lines: list              # [(label, template with {i:.1f} placeholders)]
-    text: list                     # [F][U] label under each cluster marker
+    z: np.ndarray # shape [frames, units]
+    custom: np.ndarray # shape [frames, units, values]
+    hover_lines: list # (label, template with {i:.1f} placeholders)
+    text: list # [frame][unit], the text under each cluster marker
     zmin: float
     zmax: float
     colorscale: str
     initial_index: int
-    week_noun: str = "Week"                 # "Inference week" when the variable is lagged
+    week_noun: str = "Week" # "Inference week" if the variable is lagged
 
     @property
     def animated(self) -> bool:
@@ -561,15 +537,17 @@ class MapFrames:
 
 
 def available_categories(d: DiseaseData) -> list:
-    """[(key, label)] in display order (forecast first, so it is the default)."""
+    """List of (key, label) in display order. Forecast comes first, so it is the default."""
     keys = ["forecast"] if d.has_forecasts else []
     keys += [c for c in TREND_CATEGORIES if (d.catalog["category"] == c).any()]
     return [(k, CATEGORY_LABELS[k]) for k in keys]
 
 
 def variable_options(d: DiseaseData, category: str) -> list:
-    """[(variable key, human readable label)] for a map category. Feature categories list variable bases; the series
-    (current week or a lag) is chosen next with series_options, and map_frames takes the resulting feature name."""
+    """
+    List of (variable key, label) for a map category. For feature categories these are the variable bases.
+    The series (current week or a lag) is chosen next with series_options, and map_frames receives the resulting feature name.
+    """
     if category == "forecast":
         return [(str(h), horizon_label(h)) for h in d.horizons]
     return base_options(d, category, include_static=True)
@@ -615,7 +593,7 @@ def map_frames(d: DiseaseData, category: str, variable: str) -> MapFrames:
     else:
         wide = d.feature_wide(variable)[units].dropna(how="all")
         weeks, z = list(wide.index), wide.to_numpy(dtype="float64")
-        if np.nanmax(np.nanstd(z, axis=0)) == 0:                       # constant over time: one frame
+        if np.nanmax(np.nanstd(z, axis=0)) == 0: # does not change over time, so one frame is enough
             weeks, z = weeks[-1:], z[-1:]
         decimals = decimals_for(z)
         custom, hover = z[..., None], [(options[variable], f"{{0:.{decimals}f}}")]
@@ -635,12 +613,8 @@ def map_frames(d: DiseaseData, category: str, variable: str) -> MapFrames:
     )
 
 
-# ----------------------------------------------------------------------------------------------
-# Model performance
-# ----------------------------------------------------------------------------------------------
-
 def performance_by_cluster(d: DiseaseData, horizon: int, scope: str) -> tuple:
-    """(Series of RMSE by cluster, pooled RMSE, citywide-total RMSE)."""
+    """Returns the RMSE of each cluster (a Series), the pooled RMSE, and the RMSE of the citywide totals."""
     p = d.performance
     p = p[(p["horizon"] == horizon) & (p["scope"] == scope)].set_index("unit")["rmse"]
     return p.reindex(d.clusters), float(p.get("POOLED", np.nan)), float(p.get(CITY, np.nan))

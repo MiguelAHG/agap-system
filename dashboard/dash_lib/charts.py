@@ -1,9 +1,7 @@
 """
-charts.py
-
-Plotly figure builders. They only draw; all numbers come precomputed from model.py. Maps use the MapLibre traces
-(go.Choroplethmap / go.Scattermap) when the installed Plotly has them, and fall back to the older Mapbox traces otherwise.
-No Mapbox token is needed (OpenStreetMap tiles).
+Plotly figures. This file only draws plots. The model.py file prepares the numbers. Maps use the newer MapLibre traces when the
+installed Plotly has them, and the older Mapbox traces if not. No token is needed, because the map tiles come from
+OpenStreetMap.
 """
 
 from __future__ import annotations
@@ -18,14 +16,14 @@ import plotly.graph_objects as go
 from . import model as M
 
 FORECAST_COLOR = "#e8710a"
-FORECAST_LINE = "#8f3a00"          # darker orange for the point forecast line
+FORECAST_LINE = "#8f3a00" # darker orange, used for the point forecast line
 ACTUAL_COLOR = "#1f3b57"
 GRID = "#e6e6e6"
 RAIN_FILL = "rgba(120, 170, 220, 0.16)"
 CHART_CONFIG = {"displayModeBar": False}
 
-SLIDER_X, SLIDER_LEN = 0.14, 0.84                  # horizontal extent of the map slider (paper units)
-CLUSTER_LINE = dict(width=2, color="#ff8a8a")        # light red outline between clusters
+SLIDER_X, SLIDER_LEN = 0.14, 0.84 # start and length of the map slider, as fractions of the figure width
+CLUSTER_LINE = dict(width=2, color="#ff8a8a") # light red line between clusters
 
 _NEW_MAPS = hasattr(go, "Choroplethmap")
 _CHORO = go.Choroplethmap if _NEW_MAPS else go.Choroplethmapbox
@@ -39,15 +37,11 @@ def _base_layout(fig: go.Figure, height: int, **extra) -> go.Figure:
 
 
 def _shade(rank: int, count: int) -> str:
-    """Grey for an interval level; rank 0 is the widest level (lightest)."""
+    """Gray for one interval level. Rank 0 is the widest level and the lightest."""
     t = 0 if count <= 1 else rank / (count - 1)
     v = int(round(184 - t * (184 - 68)))
     return f"rgb({v},{v},{v})"
 
-
-# ----------------------------------------------------------------------------------------------
-# Bar chart: forecasts for all horizons with labelled intervals
-# ----------------------------------------------------------------------------------------------
 
 def fig_forecast_bars(bars: pd.DataFrame, labels: pd.DataFrame, level_keys: list, y_title: str) -> go.Figure:
     n = len(bars)
@@ -61,7 +55,7 @@ def fig_forecast_bars(bars: pd.DataFrame, labels: pd.DataFrame, level_keys: list
     ))
 
     count = len(level_keys)
-    for rank, k in enumerate(reversed(level_keys)):                      # widest first, so thicker lines sit on top
+    for rank, k in enumerate(reversed(level_keys)): # widest first; narrower ones are thicker and sit on top
         xs, ys = [], []
         for p, lo, hi in zip(pos, bars[f"lo{k}"], bars[f"hi{k}"]):
             xs += [p, p, None]
@@ -97,12 +91,8 @@ def fig_forecast_bars(bars: pd.DataFrame, labels: pd.DataFrame, level_keys: list
     return _base_layout(fig, 470, bargap=0.2, legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0))
 
 
-# ----------------------------------------------------------------------------------------------
-# Line chart: actual cases vs forecasts with nested intervals
-# ----------------------------------------------------------------------------------------------
-
 def _add_rainy_shading(fig: go.Figure, first_year: int, last_year: int, label: bool = True) -> None:
-    """Shade June to November of each year and label every season at its middle, near the bottom of the plot."""
+    """Shade June to November of every year and label each season in the middle."""
     for year in range(first_year, last_year + 1):
         fig.add_shape(type="rect", x0=f"{year}-06-01", x1=f"{year}-12-01", y0=0, y1=1, xref="x", yref="paper",
                       fillcolor=RAIN_FILL, line_width=0, layer="below")
@@ -122,8 +112,8 @@ def fig_timeseries(ts: dict, horizon: int, y_title: str, show_forecast: bool = T
     fx = weeks[sf]
     if show_bands and show_forecast:
         bands = ts["bands"]
-        alphas = np.linspace(0.12, 0.42, len(bands))[::-1]               # widest level is the lightest
-        for band, alpha in zip(reversed(bands), reversed(list(alphas))):  # draw widest first
+        alphas = np.linspace(0.12, 0.42, len(bands))[::-1] # the widest level gets the lightest color
+        for band, alpha in zip(reversed(bands), reversed(list(alphas))): # draw the widest band first
             fig.add_trace(go.Scatter(
                 x=np.concatenate([fx, fx[::-1]]), y=np.concatenate([band["hi"][sf], band["lo"][sf][::-1]]),
                 fill="toself", fillcolor=f"rgba(232,113,10,{alpha:.2f})", line=dict(width=0),
@@ -162,10 +152,6 @@ def fig_timeseries(ts: dict, horizon: int, y_title: str, show_forecast: bool = T
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
 
 
-# ----------------------------------------------------------------------------------------------
-# Historical trends
-# ----------------------------------------------------------------------------------------------
-
 def fig_trend(series: pd.Series, y_title: str, decimals: int, show_rain: bool, title: str = "",
               x_title: str = "Week") -> go.Figure:
     fig = go.Figure()
@@ -197,7 +183,7 @@ MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 def fig_seasonal(by_year: pd.DataFrame, mean: pd.Series, y_title: str, decimals: int, title: str = "",
                  x_title: str = "Month") -> go.Figure:
     fig = go.Figure()
-    for i, year in enumerate(by_year.columns):                           # one gray legend entry for all individual years
+    for i, year in enumerate(by_year.columns): # only the first year shows in the legend, as one gray entry
         fig.add_trace(go.Scatter(
             x=by_year.index, y=by_year[year], mode="lines", name="Data from individual years", legendgroup="years",
             showlegend=(i == 0), line=dict(width=1, color="rgba(120,120,120,0.45)"),
@@ -215,10 +201,6 @@ def fig_seasonal(by_year: pd.DataFrame, mean: pd.Series, y_title: str, decimals:
                       margin=dict(l=10, r=10, t=110 if title else 40, b=10))
     return fig
 
-
-# ----------------------------------------------------------------------------------------------
-# Maps
-# ----------------------------------------------------------------------------------------------
 
 _PLACEHOLDER = re.compile(r"\{(\d+)(:[^}]*)?\}")
 
@@ -249,7 +231,9 @@ def _marker_labels(units: list, extras: dict, texts: list) -> go.Scattermap:
 
 
 def _week_box(noun: str, week) -> dict:
-    """Box at the top left of the map: 'Inference week: 2025-07-04 - 2025-07-10' (week start to its 6th day)."""
+    """
+    Box at the top left of the map, for example 'Inference week: 2025-07-04 - 2025-07-10'. It shows the first and last day of the week.
+    """
     start = pd.Timestamp(week)
     text = f"{noun}: {start:%Y-%m-%d} - {start + pd.Timedelta(days=6):%Y-%m-%d}"
     return dict(x=0.01, y=0.99, xref="paper", yref="paper", xanchor="left", yanchor="top", showarrow=False, text=f"<b>{text}</b>",
@@ -259,8 +243,7 @@ def _week_box(noun: str, week) -> dict:
 
 def fig_map_animated(m: M.MapFrames, clusters_geojson: dict, extras: dict, height: int = 640, frame_ms: int = 450) -> go.Figure:
     """
-    Cluster map with a built-in slider and Play button. All frames are sent to the browser once, so moving the slider or
-    playing never triggers a Streamlit rerun.
+    Map with a slider and a Play button. All frames are sent to the browser once, so using the slider does not rerun the app.
     """
     i0 = m.initial_index
     choropleth = _CHORO(
@@ -282,8 +265,8 @@ def fig_map_animated(m: M.MapFrames, clusters_geojson: dict, extras: dict, heigh
                      layout=dict(annotations=[_week_box(m.week_noun, m.weeks[i])]))
             for i in range(len(labels))
         ]
-        # Year labels are drawn as the tick labels of a hidden axis just under the map, with the same x extent and equal
-        # spacing as the slider steps (slider step labels are unreliable with hundreds of steps).
+        # The years are the tick labels of a hidden axis under the map. The axis is as wide as the slider and its
+        # steps are equally spaced, so each year lines up with its first week. The slider's own labels did not show well.
         years = [pd.Timestamp(w).year for w in m.weeks]
         first_of_year = [i for i, y in enumerate(years) if i == 0 or y != years[i - 1]]
         fig.add_trace(go.Scatter(x=[0], y=[0], mode="markers", opacity=0, hoverinfo="skip", showlegend=False))
@@ -336,7 +319,7 @@ def fig_cluster_guide(barangays_geojson: dict, brgy_table: pd.DataFrame, extras:
             hovertemplate="<b>%{location}</b><br>Cluster %{customdata[0]}<br>District %{customdata[1]}<extra></extra>",
             showlegend=False,
         ))
-    for i, c in enumerate(clusters):                                     # legend entries
+    for i, c in enumerate(clusters): # empty traces that only make the legend entries
         fig.add_trace(_SCATTER(lat=[None], lon=[None], mode="markers", marker=dict(size=12, color=colors[c]),
                                name=f"Cluster {c}", legendgroup="clusters",
                                legendgrouptitle_text="Clusters" if i == 0 else None, hoverinfo="skip"))

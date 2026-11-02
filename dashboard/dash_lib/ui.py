@@ -1,4 +1,4 @@
-"""Small shared Streamlit widgets."""
+"""Small widgets used by more than one page."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from . import model as M
 
 
 def barangay_expander(d: M.DiseaseData, key_prefix: str) -> None:
-    """Expander: pick a cluster, see its barangays in a compact multi-column table."""
+    """Expander to pick a cluster and see its barangays in a table with several columns."""
     table = loaders.load_geo()["barangay_table"]
     with st.expander("Barangays in each cluster"):
         cluster = st.selectbox("Cluster", d.clusters, format_func=M.unit_label, key=f"{key_prefix}_cluster_{d.key}")
@@ -20,7 +20,7 @@ def barangay_expander(d: M.DiseaseData, key_prefix: str) -> None:
 
 
 def right_aligned_table(df) -> None:
-    """Show a small text table with every cell right-aligned (st.dataframe cannot right-align text cells)."""
+    """Shows a small table with every cell right-aligned. Because st.dataframe cannot right-align text."""
     head = "".join(f"<th style='text-align:right;padding:6px 12px;min-width:170px;white-space:nowrap'>{c}</th>" for c in df.columns)
     rows = ""
     for name, row in df.iterrows():
@@ -36,7 +36,7 @@ def right_aligned_table(df) -> None:
 
 
 def barangay_search_expander(d: M.DiseaseData, key_prefix: str) -> None:
-    """Expander: search a barangay by name, see its cluster and every barangay of that cluster."""
+    """Expander to search a barangay by name. It shows the cluster of the barangay and all barangays in that cluster."""
     table = loaders.load_geo()["barangay_table"]
     with st.expander("Search a barangay and find the cluster it belongs to"):
         names = sorted(table["barangay"].tolist())
