@@ -27,8 +27,11 @@ CATEGORY_LABELS = {
     "environmental": "Historical environmental variables",
     "population": "Historical population variables",
 }
-BASE_LAST_WEEK = pd.Timestamp("2026-03-20") # last week of the base disease data (12th week of 2026)
+BASE_LAST_WEEK = pd.Timestamp("2025-12-26") # last week of the base disease data; uploaded data starts the week after
 BASE_LAST_ORIGIN = pd.Timestamp("2025-12-26") # last current week that can be chosen with only the base data
+LAST_DATA_WEEK = pd.Timestamp("2026-07-03") # last week of disease data that can be uploaded. It is also the last week with forecasts
+                                            # (origin_last in public/meta.json), so every uploaded week can be selected as the current week.
+                                            # Update it if the forecasts are precomputed again with more weeks.
 TREND_CATEGORIES = ("cases", "climatic", "environmental", "population")
 CATALOG_COLUMNS = ["name", "base", "base_display", "lag", "category", "unit", "static"]
 
@@ -193,21 +196,25 @@ def complete_up_to(counts: pd.DataFrame, start) -> pd.Timestamp:
 
 
 def session_view(d: DiseaseData, added: pd.DataFrame | None = None, skip: bool = False, version: str = "base",
-                 base_last_week=None, base_last_origin=None) -> DiseaseData:
+                 base_last_week=None, base_last_origin=None, last_data_week=None) -> DiseaseData:
     """
     The disease data that one session sees. It has the base data (true counts up to the last base week) plus any added
     weeks. added has cluster totals by week from an upload. With skip, the weeks after the base data in the full data are
-    added instead. Current weeks are limited to what the data covers, and forecasts made after that are hidden.
-    The full object d is shared and is never changed.
+    added instead. No week after last_data_week (LAST_DATA_WEEK by default) is ever shown, even if the full data has it.
+    The current weeks that can be selected go up to the last added week, since a forecast can be made with all the data up
+    to its week; forecasts made after that are hidden. The full object d is shared and is never changed.
     """
     if not d.has_actuals or not d.fc:
         return d
     base_last_week = pd.Timestamp(base_last_week) if base_last_week is not None else BASE_LAST_WEEK
     base_last_origin = pd.Timestamp(base_last_origin) if base_last_origin is not None else BASE_LAST_ORIGIN
+    last_data_week = pd.Timestamp(last_data_week) if last_data_week is not None else LAST_DATA_WEEK
     full = d.actuals
     base = full.loc[:base_last_week]
     if skip:
         added = full.loc[full.index > base_last_week]
+    if added is not None:
+        added = added[added.index <= last_data_week] # nothing after the last allowed week gets in
     last_origin = d.fc[(d.horizons[0], CITY)].index.max()
     if added is not None and len(added):
         added = added.reindex(columns=base.columns)

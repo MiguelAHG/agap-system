@@ -4,7 +4,8 @@ Checks an uploaded weekly case file with the columns week_start, barangay and ca
 A week is complete when every barangay has a value for it. Missing barangay rows and missing weeks inside the uploaded
 range are filled with zero and reported.
 
-Any invalid value makes the whole file get rejected.
+Any invalid value makes the whole file get rejected. That includes a week after last_allowed_week, the last week that can be
+uploaded.
 """
 
 from __future__ import annotations
@@ -52,11 +53,11 @@ def _parse_count(value):
 
 
 def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: str = "CITY",
-             base_last_week=None) -> UploadResult:
+             base_last_week=None, last_allowed_week=None) -> UploadResult:
     """
-    barangays has the columns barangay and cluster, for every barangay of the city. The checks on each row come first.
-    Completeness is checked for the weeks after base_last_week (all weeks of the file if None) up to the last uploaded
-    week. Rows for earlier weeks are not used.
+    barangays has the columns barangay and cluster, for every barangay of the city. The checks on each row come first;
+    a row with a week after last_allowed_week (if given) is invalid. Completeness is checked for the weeks after
+    base_last_week (all weeks of the file if None) up to the last uploaded week. Rows for earlier weeks are not used.
     """
     lookup = {str(c).strip().lower(): c for c in raw.columns}
     if not set(COLUMNS) <= set(lookup):
@@ -67,6 +68,7 @@ def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: s
         return UploadResult(False, errors=["The file has no rows."])
 
     valid_names = set(barangays["barangay"])
+    last_allowed = None if last_allowed_week is None else pd.Timestamp(last_allowed_week)
     n = len(df)
     parts = [[] for _ in range(n)]
     dates = [pd.NaT] * n
@@ -86,6 +88,8 @@ def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: s
             stamp = pd.to_datetime(text, format="%Y-%m-%d", errors="coerce")
             if pd.isna(stamp) or (stamp - GRID_ORIGIN).days % 7 != 0:
                 parts[pos].append(f"'{text}' is not a valid week start date.")
+            elif last_allowed is not None and stamp > last_allowed:
+                parts[pos].append(f"'{text}' is after the last week that can be uploaded ({last_allowed:%Y-%m-%d}).")
             else:
                 dates[pos] = stamp
         value, problem = _parse_count(cases)
@@ -135,10 +139,11 @@ def validate(raw: pd.DataFrame, barangays: pd.DataFrame, clusters: list, city: s
                         first_week=weeks[0], last_week=weeks[-1])
 
 
-def validate_csv(file, barangays: pd.DataFrame, clusters: list, city: str = "CITY", base_last_week=None) -> UploadResult:
+def validate_csv(file, barangays: pd.DataFrame, clusters: list, city: str = "CITY", base_last_week=None,
+                 last_allowed_week=None) -> UploadResult:
     try:
         file.seek(0)
         raw = pd.read_csv(file, dtype=str)
     except Exception:
         return UploadResult(False, errors=["The file could not be read as a CSV."])
-    return validate(raw, barangays, clusters, city, base_last_week)
+    return validate(raw, barangays, clusters, city, base_last_week, last_allowed_week)

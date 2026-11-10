@@ -7,7 +7,7 @@ import numpy as np, pandas as pd
 root = Path(tempfile.mkdtemp()); (root / ".here").touch()
 (root / "data").mkdir()
 stub = types.ModuleType("pyprojroot"); stub.here = lambda: root; sys.modules["pyprojroot"] = stub
-BUILD = Path("/home/claude/build/agap-system")
+BUILD = Path(__file__).resolve().parents[1]   # the project root (the folder that holds dashboard, src and tests)
 sys.path.insert(0, str(BUILD / "src/step_04_dashboard_prep")); sys.path.insert(0, str(BUILD / "dashboard"))
 import dashboard_prep_utils as P
 from dash_lib import model as M
@@ -185,10 +185,10 @@ bad = rows(wk[:2]).astype(object)
 bad.loc[0, "barangay"] = "Nowhere"; bad.loc[1, "week_start"] = "2026-03-28"; bad.loc[2, "cases"] = "-3"; bad.loc[3, "cases"] = "2.5"
 bad.loc[4, "cases"] = None; bad.loc[5, "week_start"] = "not a date"; bad.loc[6, "barangay"] = None; bad.loc[7, "week_start"] = bad.loc[8, "week_start"]
 r = newdata.validate(bad, bt, clusters); print("\n".join(r.errors))
-assert not r.ok and r.errors[0] == "Row at position 0: Nowhere is not a valid barangay name."
-assert "2026-03-28 is not a valid week start date." in r.errors[1] and r.errors[2].endswith("Disease case count -3 is negative.")
+assert not r.ok and r.errors[0] == "0-th row (index 0): 'Nowhere' is not a valid barangay name."
+assert "'2026-03-28' is not a valid week start date." in r.errors[1] and r.errors[2].endswith("Disease case count -3 is negative.")
 assert "Disease case count 2.5 is not an integer." in r.errors[3] and "Disease case count is missing." in r.errors[4]
-assert "not a date is not a valid week start date." in r.errors[5] and "Barangay name is missing." in r.errors[6]
+assert "'not a date' is not a valid week start date." in r.errors[5] and "Barangay name is missing." in r.errors[6]
 assert newdata.validate(pd.DataFrame({"a": [1]}), bt, clusters).errors[0].startswith("The file must have the columns")
 # completeness is only checked after the last base week, up to the last uploaded week; earlier rows are not used
 late = newdata.validate(rows(wk[1:]), bt, clusters, base_last_week=wk[0])
@@ -217,6 +217,38 @@ assert M.origin_weeks(vs)[-1] == fo.max() and vs.actuals.index.max() == d.actual
 assert M.complete_up_to(add, base_last) == nxt[-1]
 mf = M.map_frames(v0, "forecast", "1"); assert max(mf.weeks) <= base_origin + pd.Timedelta(weeks=1)
 assert M.map_frames(v0, "cases", "CASES").weeks[-1] == base_last
+
+# last week that can be uploaded: later weeks are rejected, the last allowed week itself is accepted
+cap = wk[2]
+edge = newdata.validate(rows(wk[:3]), bt, clusters, base_last_week=None, last_allowed_week=cap)
+assert edge.ok and edge.last_week == cap # a file ending exactly on the last allowed week is fine
+over = newdata.validate(rows(wk), bt, clusters, last_allowed_week=cap)
+assert not over.ok and over.headline == "Error: There are invalid data values"
+assert len(over.errors) == len(bt) # one line for each barangay row of the single week after the cap
+assert over.errors[0] == f"{len(rows(wk[:3]))}-th row (index {len(rows(wk[:3]))}): '{wk[3]:%Y-%m-%d}' is after the last week that can be uploaded ({cap:%Y-%m-%d})."
+assert newdata.validate(rows(wk), bt, clusters).ok # without a limit the same file is accepted
+mixed = rows(wk).astype(object); mixed.loc[0, "cases"] = "-1" # a bad value and a late week in different rows: both are reported
+assert len(newdata.validate(mixed, bt, clusters, last_allowed_week=cap).errors) == len(bt) + 1
+import io
+csv_over = newdata.validate_csv(io.StringIO(rows(wk).to_csv(index=False)), bt, clusters, base_last_week=wk[0], last_allowed_week=cap)
+assert not csv_over.ok
+csv_ok = newdata.validate_csv(io.StringIO(rows(wk[1:3]).to_csv(index=False)), bt, clusters, base_last_week=wk[0], last_allowed_week=cap)
+assert csv_ok.ok and csv_ok.last_week == cap
+# the session view never shows weeks after the last allowed week, and the last selectable week is the last uploaded week
+cap_week = fo[-30]
+add_over = pd.DataFrame(1.0, index=pd.DatetimeIndex([base_last + pd.Timedelta(weeks=i) for i in range(1, 15)], name="week"), columns=list(clusters) + [M.CITY])
+assert add_over.index.max() > cap_week
+v3 = M.session_view(d, add_over, version="u3", base_last_week=base_last, base_last_origin=base_origin, last_data_week=cap_week)
+assert v3.actuals.index.max() == cap_week and M.origin_weeks(v3)[-1] == cap_week # data and selector both stop at the cap
+short = add_over[add_over.index <= base_last + pd.Timedelta(weeks=3)]
+v4 = M.session_view(d, short, version="u4", base_last_week=base_last, base_last_origin=base_origin, last_data_week=cap_week)
+assert v4.actuals.index.max() == short.index.max() == M.origin_weeks(v4)[-1] # less data than allowed: selector stops at the last uploaded week
+vs2 = M.session_view(d, skip=True, base_last_week=base_last, base_last_origin=base_origin, last_data_week=cap_week)
+assert vs2.actuals.index.max() == cap_week and M.origin_weeks(vs2)[-1] == cap_week # the debug skip option obeys the cap too
+assert vs2.forecast_long["origin_week"].max() == cap_week
+assert M.map_frames(vs2, "cases", "CASES").weeks[-1] == cap_week
+assert M.BASE_LAST_WEEK == M.BASE_LAST_ORIGIN == pd.Timestamp("2025-12-26") # with only the base data, the last selectable week is the last base week
+assert M.LAST_DATA_WEEK == pd.Timestamp("2026-07-03") and (M.LAST_DATA_WEEK - newdata.GRID_ORIGIN).days % 7 == 0 # a valid week start
 
 # vault: encrypt and decrypt with a password
 from dash_lib import vault

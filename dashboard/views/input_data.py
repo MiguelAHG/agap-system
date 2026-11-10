@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from dash_lib import loaders, newdata
@@ -24,7 +25,8 @@ st.title("Input Disease Data")
 
 with st.container(border=True):
     st.markdown(f"**Upload new weekly {d.label} cases**")
-    st.caption("The file must be a CSV with the columns week_start, barangay and cases. There should be one row per barangay per week.\n\n"
+    st.caption("The file must be a CSV with the columns week_start, barangay and cases. There should be one row per barangay per week. "
+               f"In this prototype, data can only be uploaded up to the week of {M.iso_span(M.LAST_DATA_WEEK)} for demonstration purposes\n\n"
                "To change the disease, use the selector in the sidebar.")
     if skip:
         st.info("Manual input is skipped in the debug panel below, so uploads are disabled.")
@@ -35,7 +37,7 @@ with st.container(border=True):
         st.session_state[handled_key] = uploaded.file_id
         st.session_state.pop(state_key, None) # an earlier upload is treated as if it never happened
         result = newdata.validate_csv(uploaded, loaders.load_geo()["barangay_table"], d.clusters, M.CITY,
-                                        base_last_week=M.BASE_LAST_WEEK)
+                                        base_last_week=M.BASE_LAST_WEEK, last_allowed_week=M.LAST_DATA_WEEK)
         if result.ok:
             st.session_state[state_key] = {"counts": result.counts, "version": result.version, "name": uploaded.name}
         st.session_state[result_key] = {"ok": result.ok, "errors": result.errors, "headline": result.headline,
@@ -50,7 +52,7 @@ with st.container(border=True):
                            "Disease counts for missing barangays were treated as zero:")
                 with st.expander("Log of weeks with missing barangays"):
                     st.text("\n".join(result["missing_weeks"]))
-            latest = M.complete_up_to(d.actuals, M.BASE_LAST_WEEK)
+            latest = M.origin_weeks(d)[-1] # the last week that the Current week selector offers
             st.info(f"New data has been added. You can now select weeks up to {M.fmt_week(latest)}.")
         else:
             st.error(result["headline"])
@@ -65,7 +67,9 @@ st.warning("This is a prototype feature for demonstration purposes only. "
            "Your upload will be deleted if you reuse the upload button or close the app.")
 
 with st.expander("Debug panel"):
-    st.write("In this dashboard prototype, the user must manually input disease data from April 2026 onward, "
-             "so that the prototype can demonstrate the data input mechanism. "
+    first_new, last_new = M.BASE_LAST_WEEK + pd.Timedelta(days=7), M.LAST_DATA_WEEK
+    st.write(f"In this dashboard prototype, the user must manually input disease data for the weeks from {M.fmt_week(first_new)} "
+             f"up to {M.fmt_week(last_new)}, so that the prototype can demonstrate the data input mechanism. "
              "For debugging purposes, this manual input can be skipped.")
-    st.checkbox("Skip manual input for 2026 April-September", value=skip, key="skip_widget", on_change=_set_skip)
+    st.checkbox(f"Skip manual input for {M.fmt_week(first_new)} to {M.fmt_week(last_new)}", value=skip,
+                key="skip_widget", on_change=_set_skip)

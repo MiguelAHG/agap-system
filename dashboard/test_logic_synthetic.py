@@ -7,7 +7,7 @@ import numpy as np, pandas as pd
 root = Path(tempfile.mkdtemp()); (root / ".here").touch()
 (root / "data").mkdir()
 stub = types.ModuleType("pyprojroot"); stub.here = lambda: root; sys.modules["pyprojroot"] = stub
-BUILD = Path("/home/claude/build/agap-system")
+BUILD = Path(__file__).resolve().parents[1]   # the project root (the folder that holds dashboard, src and tests)
 sys.path.insert(0, str(BUILD / "src/step_04_dashboard_prep")); sys.path.insert(0, str(BUILD / "dashboard"))
 import dashboard_prep_utils as P
 from dash_lib import model as M
@@ -28,7 +28,7 @@ x = rng.normal(size=(T, N, len(F))).astype("float32") + 5
 x[:, :, F.index("ELEVATION_M")] = np.arange(N)[None, :] * 10          # static feature
 x[:, :, F.index("DISEASE_COUNT")] = y
 x[3:, :, F.index("SECRET_LAGGED")] = y[:-3]; x[:3, :, F.index("SECRET_LAGGED")] = 0   # lag 3 copy, no telling name
-graph = {"x": x, "y": y, "weeks": weeks, "clusters": clusters, "feature_names": F}
+graph = {"x": x, "y": y, "interval_start": weeks, "clusters": clusters, "feature_names": F}
 
 # ---- epi leakage detection
 epi = P.epi_derived_features(x, y, F)
@@ -107,7 +107,7 @@ o = origins[100]
 
 k = M.key_indicators(d, o); print(json.dumps(k, default=str, indent=1)[:900])
 assert k["past"]["week_cases"] == float(act.set_index("week").loc[o, "CITY"])
-assert len(k["future"]) == 2 and k["future"][0]["horizon"] == 1
+assert len(k["future"]) == len(H) and k["future"][0]["horizon"] == 1
 tab = M.cluster_forecast_table(d, o, 1); print(tab.iloc[:, :3]); assert tab.shape == (4, 6)
 bars = M.horizon_bars(d, o, M.CITY); lay = M.bar_label_layout(bars, ["50", "80", "95"], 100.0)
 print(lay.head(7))
@@ -121,13 +121,13 @@ ts2 = M.timeseries_data(d, 1, "B", o, hide_future=False); assert ts2["show_actua
 print("ticks", M.nice_ticks(87.3))
 
 cats = M.trend_categories(d); print("trend cats", cats)
-opt = M.trend_variable_options(d, "environmental"); print(opt)
-assert "ELEVATION_M" not in [n for n, _ in M.trend_variable_options(d, "environmental")]
+opt = M.base_options(d, "environmental", include_static=False); print(opt)
+assert "ELEVATION_M" not in [n for n, _ in opt] and "ELEVATION_M" in [n for n, _ in M.base_options(d, "environmental", include_static=True)]
 s = M.trend_series(d, "RAINFALL_MM", M.CITY); assert s.isna().sum() == 1        # exactly one gap break
 tbl, mean = M.seasonal_profile(s); assert tbl.shape[0] == 12 and len(mean) == 12
 
 print("map categories:", M.available_categories(d))
-for cat, var in (("forecast", "1"), ("forecast", "8"), ("cases", "weekly"), ("cases", "four_week"), ("climatic", "RAINFALL_MM"), ("environmental", "ELEVATION_M"), ("population", "POP_TOTAL")):
+for cat, var in (("forecast", "1"), ("forecast", "8"), ("cases", "CASES"), ("cases", "CASES4"), ("climatic", "RAINFALL_MM"), ("environmental", "ELEVATION_M"), ("population", "POP_TOTAL")):
     mf = M.map_frames(d, cat, var)
     print(cat, var, "frames", len(mf.weeks), "z", mf.z.shape, "custom", mf.custom.shape, "zr", round(mf.zmin, 2), round(mf.zmax, 2), "|", mf.hover_lines[0], mf.text[0][0].replace("<br>", "/"))
     assert mf.z.shape == (len(mf.weeks), len(clusters)) and mf.custom.shape[:2] == mf.z.shape
