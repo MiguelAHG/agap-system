@@ -28,3 +28,8 @@ data/intermediary_files/
 
 # private files
 PRIVATE/
+
+# Unnecessary files that show up when coding
+__pycache__/
+*.pyc
+.vscode/
