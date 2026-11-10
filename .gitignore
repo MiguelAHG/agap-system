@@ -25,3 +25,6 @@ data/intermediary_files/
 
 # Script for running app on local
 *.bat
+
+# private files
+PRIVATE/
